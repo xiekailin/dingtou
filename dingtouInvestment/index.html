@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定投记录工具</title>
+    <!-- 引入Chart.js库 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 添加MySQL连接所需的Axios库 -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- 引入样式表 -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>定投记录工具</h1>
+        
+        <!-- 添加数据源选择器 -->
+        <div class="data-source-selector">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span><strong>数据存储位置:</strong></span>
+                <div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="dataSourceToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <div class="source-labels">
+                        <span>本地</span>
+                        <span>云端</span>
+                    </div>
+                </div>
+            </div>
+            <div id="dbStatus" class="db-status db-disconnected">
+                <span id="dbStatusText">数据库连接状态: 未连接</span>
+                <button id="testConnectionBtn" class="secondary db-sync-btn">测试连接</button>
+                <button id="syncToDbBtn" class="secondary db-sync-btn" style="display: none;">同步到云端</button>
+                <button id="syncFromDbBtn" class="secondary db-sync-btn" style="display: none;">从云端同步</button>
+            </div>
+        </div>
+        
+        <div class="currency-selector">
+            <label>币种</label>
+            <div class="radio-group">
+                <div class="radio-item">
+                    <input type="radio" id="currency-usd" name="currency" value="USD" checked>
+                    <label for="currency-usd">美元 (USD)</label>
+                </div>
+                <div class="radio-item">
+                    <input type="radio" id="currency-cny" name="currency" value="CNY">
+                    <label for="currency-cny">人民币 (CNY)</label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="date">日期时间</label>
+            <input type="datetime-local" id="date" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="amount">买入金额 (<span id="currency-symbol">USD</span>)</label>
+            <input type="number" id="amount" placeholder="请输入买入金额" step="0.01" min="0" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="btcPrice">买入时BTC价格 (<span id="price-currency-symbol">USD</span>)</label>
+            <input type="number" id="btcPrice" placeholder="请输入买入时BTC价格" step="0.01" min="0" required>
+            <button id="getCurrentPrice" class="secondary" style="width: auto; margin-top: 5px;">获取当前价格</button>
+        </div>
+        
+        <div class="form-group">
+            <label for="note">备注</label>
+            <input type="text" id="note" placeholder="可选备注">
+        </div>
+        
+        <div class="button-group">
+            <button id="saveBtn">保存记录</button>
+            <button id="clearBtn" class="danger">清空所有记录</button>
+            <button id="exportBtn" class="secondary">导出数据</button>
+            <button id="importBtn" class="secondary">导入文件</button>
+            <button id="importJsonBtn" class="secondary">导入JSON文本</button>
+            <button id="dbConfigBtn" class="secondary">数据库配置</button>
+        </div>
+        
+        <div class="price-container">
+            <div>
+                <span>当前BTC价格 (<span id="current-price-currency">USD</span>): </span>
+                <span id="currentBtcPrice" class="current-price">--</span>
+            </div>
+            <button id="refreshPrice" class="secondary">手动刷新价格</button>
+            <div class="radio-item">
+                <input type="checkbox" id="autoRefresh">
+                <label for="autoRefresh">自动更新价格 (每60秒)</label>
+            </div>
+        </div>
+        
+        <!-- 投资统计（移到前面） -->
+        <div id="statistics" class="statistics-container highlight-stats">
+            <h2>投资统计</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">总投资额 (<span class="stats-currency">USD</span>):</div>
+                    <div id="totalInvestment" class="stat-value">0.00</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">总BTC数量:</div>
+                    <div id="totalBtc" class="stat-value">0.00000000</div>
+                </div>
+                <div class="stat-item highlight">
+                    <div class="stat-label">当前总价值 (<span class="stats-value-currency">USD</span>):</div>
+                    <div id="totalCurrentValue" class="stat-value">0.00</div>
+                </div>
+                <div class="stat-item highlight">
+                    <div class="stat-label">总收益 (<span class="stats-profit-currency">USD</span>):</div>
+                    <div id="totalProfit" class="stat-value">0.00</div>
+                </div>
+                <div class="stat-item highlight">
+                    <div class="stat-label">总收益率 (%):</div>
+                    <div id="totalProfitPercentage" class="stat-value">0.00%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">买入金额均价 (<span class="stats-currency">USD</span>):</div>
+                    <div id="averageAmount" class="stat-value">0.00</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">BTC价格均价 (<span class="stats-currency">USD</span>):</div>
+                    <div id="averageBtcPrice" class="stat-value">0.00</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">平均收益率 (%):</div>
+                    <div id="averageReturnRate" class="stat-value">0.00%</div>
+                </div>                
+            </div>
+        </div>
+        
+        <h2>定投历史记录 <span class="record-count" id="recordCount"></span></h2>
+        <div class="records-control">
+            <button id="toggleRecordsBtn" class="secondary">显示全部记录</button>
+            <span id="recordsSummary" class="records-summary"></span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>买入金额 (<span class="table-currency">USD</span>)</th>
+                    <th>买入时BTC价格 (<span class="table-price-currency">USD</span>)</th>
+                    <th>买入数量 (BTC)</th>
+                    <th>备注</th>
+                    <th>当前价值 (<span class="table-value-currency">USD</span>)</th>
+                    <th>收益率 (%)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="recordList">
+                <!-- 记录将通过JavaScript动态插入 -->
+            </tbody>
+        </table>
+        
+        <!-- 图表区域 -->
+        <div class="charts-container">
+            <h2>投资图表分析</h2>
+            <div class="charts-grid">
+                <div class="chart-item">
+                    <h3>投资与价值走势</h3>
+                    <canvas id="investmentValueChart" width="400" height="300"></canvas>
+                </div>
+                <div class="chart-item">
+                    <h3>BTC价格走势</h3>
+                    <canvas id="btcPriceChart" width="400" height="300"></canvas>
+                </div>
+                <div class="chart-item">
+                    <h3>累计BTC持有量</h3>
+                    <canvas id="btcAmountChart" width="400" height="300"></canvas>
+                </div>
+                <div class="chart-item">
+                    <h3>收益率变化</h3>
+                    <canvas id="profitRateChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 隐藏的文件导入输入 -->
+        <input type="file" id="importFile" style="display: none;" accept=".json">
+
+        <!-- 编辑记录的弹窗 -->
+        <div id="editRecordModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">编辑记录</h3>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-form">
+                    <div class="form-group">
+                        <label for="editDate">日期时间</label>
+                        <input type="datetime-local" id="editDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editAmount">买入金额 (<span id="edit-currency-symbol">USD</span>)</label>
+                        <input type="number" id="editAmount" placeholder="请输入买入金额" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editBtcPrice">买入时BTC价格 (<span id="edit-price-currency-symbol">USD</span>)</label>
+                        <input type="number" id="editBtcPrice" placeholder="请输入买入时BTC价格" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editNote">备注</label>
+                        <input type="text" id="editNote" placeholder="可选备注">
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="cancelEditBtn" class="danger">取消</button>
+                    <button id="saveEditBtn">保存修改</button>
+                </div>
+                <!-- 隐藏的索引字段，用于标识正在编辑的记录 -->
+                <input type="hidden" id="editRecordIndex">
+            </div>
+        </div>
+        
+        <!-- JSON导入的弹窗 -->
+        <div id="importJsonModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">导入JSON数据</h3>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-form">
+                    <div class="form-group">
+                        <label for="jsonInput">请粘贴JSON数据</label>
+                        <textarea id="jsonInput" rows="10" style="width: 100%; resize: vertical;" placeholder="在此粘贴JSON数据..."></textarea>
+                    </div>
+                    <div id="jsonError" style="color: red; margin-top: 10px; display: none;"></div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="cancelJsonImportBtn" class="danger">取消</button>
+                    <button id="importAsNewBtn" class="secondary">添加为新记录</button>
+                    <button id="replaceAllBtn">替换所有记录</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 数据库配置弹窗 -->
+        <div id="dbConfigModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">数据库配置</h3>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-form">
+                    <div class="form-group">
+                        <label for="dbHost">数据库主机</label>
+                        <input type="text" id="dbHost" value="124.221.197.94" placeholder="例如: localhost 或 IP地址">
+                    </div>
+                    <div class="form-group">
+                        <label for="dbPort">端口</label>
+                        <input type="number" id="dbPort" value="3306" placeholder="默认: 3306">
+                    </div>
+                    <div class="form-group">
+                        <label for="dbName">数据库名</label>
+                        <input type="text" id="dbName" value="bitcoininvestment" placeholder="例如: mydb">
+                    </div>
+                    <div class="form-group">
+                        <label for="dbUser">用户名</label>
+                        <input type="text" id="dbUser" value="root" placeholder="例如: root">
+                    </div>
+                    <div class="form-group">
+                        <label for="dbPassword">密码</label>
+                        <input type="password" id="dbPassword" value="root" placeholder="数据库密码">
+                    </div>
+                    <div id="dbConnectionResult" style="margin-top: 10px; padding: 8px; display: none;"></div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="cancelDbConfigBtn" class="danger">取消</button>
+                    <button id="testDbConnectionBtn" class="secondary">测试连接</button>
+                    <button id="saveDbConfigBtn">保存配置</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 同步确认弹窗 -->
+        <div id="syncConfirmModal" class="modal">
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">数据同步确认</h3>
+                    <span class="close">&times;</span>
+                </div>
+                <div style="padding: 20px;">
+                    <p id="syncConfirmMessage">确定要执行此操作吗？</p>
+                </div>
+                <div class="modal-buttons">
+                    <button id="cancelSyncBtn" class="danger">取消</button>
+                    <button id="confirmSyncBtn">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 使用ES Module导入JavaScript模块 -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html> 
