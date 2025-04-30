@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const path = require('path');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 
 // 尝试加载.env配置，但不要中断如果不存在
 try {
@@ -12,6 +15,10 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// JWT密钥
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
 // 数据库配置
 const dbConfig = {
@@ -26,6 +33,45 @@ const dbConfig = {
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dingtouInvestment')));
+
+// 用户认证中间件
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    console.log('认证失败: 未提供token');
+    return res.status(401).json({ success: false, error: '未提供认证Token' });
+  }
+  
+  try {
+    console.log(`尝试验证token: ${token.substring(0, 10)}...`);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('token解码成功, userId:', decoded.userId);
+    
+    // 验证用户是否存在
+    const connection = await pool.getConnection();
+    const [users] = await connection.query('SELECT id, username, email FROM users WHERE id = ?', [decoded.userId]);
+    connection.release();
+    
+    if (users.length === 0) {
+      console.log('认证失败: 未找到用户, userId:', decoded.userId);
+      return res.status(403).json({ success: false, error: '无效的用户' });
+    }
+    
+    req.user = {
+      id: users[0].id,
+      username: users[0].username,
+      email: users[0].email
+    };
+    
+    console.log('认证成功, 用户:', req.user.username);
+    next();
+  } catch (error) {
+    console.error('认证错误:', error.message);
+    return res.status(403).json({ success: false, error: '无效的Token: ' + error.message });
+  }
+};
 
 // 添加根路由重定向到HTML文件
 app.get('/', (req, res) => {
@@ -42,6 +88,237 @@ app.get('/status', (req, res) => {
       staticPath: path.join(__dirname, 'dingtouInvestment')
     }
   });
+});
+
+// 用户注册
+app.post('/api/register', async (req, res) => {
+  const { username, password, email } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: '用户名和密码是必填项' });
+  }
+  
+  try {
+    const connection = await pool.getConnection();
+    
+    // 检查用户名是否已存在
+    const [existingUsers] = await connection.query(
+      'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+    
+    if (existingUsers.length > 0) {
+      connection.release();
+      return res.status(409).json({ success: false, error: '用户名已存在' });
+    }
+    
+    // 检查邮箱是否已存在（如果提供了邮箱）
+    if (email) {
+      const [existingEmails] = await connection.query(
+        'SELECT id FROM users WHERE email = ?',
+        [email]
+      );
+      
+      if (existingEmails.length > 0) {
+        connection.release();
+        return res.status(409).json({ success: false, error: '邮箱已被使用' });
+      }
+    }
+    
+    // 哈希密码
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // 创建用户
+    const [result] = await connection.query(
+      'INSERT INTO users (username, password, email) VALUES (?, ?, ?)',
+      [username, hashedPassword, email || null]
+    );
+    
+    connection.release();
+    
+    // 生成JWT
+    const token = jwt.sign(
+      { userId: result.insertId },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    return res.status(201).json({
+      success: true,
+      message: '用户注册成功',
+      token,
+      user: {
+        id: result.insertId,
+        username,
+        email: email || null
+      }
+    });
+  } catch (error) {
+    console.error('用户注册失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 用户登录
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: '用户名和密码是必填项' });
+  }
+  
+  try {
+    const connection = await pool.getConnection();
+    
+    // 查找用户
+    const [users] = await connection.query(
+      'SELECT id, username, email, password FROM users WHERE username = ?',
+      [username]
+    );
+    
+    if (users.length === 0) {
+      connection.release();
+      return res.status(401).json({ success: false, error: '用户名或密码错误' });
+    }
+    
+    const user = users[0];
+    
+    // 验证密码
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+      connection.release();
+      return res.status(401).json({ success: false, error: '用户名或密码错误' });
+    }
+    
+    // 更新最后登录时间
+    await connection.query(
+      'UPDATE users SET last_login = NOW() WHERE id = ?',
+      [user.id]
+    );
+    
+    connection.release();
+    
+    // 生成JWT
+    const token = jwt.sign(
+      { userId: user.id },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    return res.json({
+      success: true,
+      message: '登录成功',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('用户登录失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取当前用户信息
+app.get('/api/user', authenticateToken, (req, res) => {
+  return res.json({
+    success: true,
+    user: req.user
+  });
+});
+
+// 用户设置保存
+app.post('/api/saveSettings', authenticateToken, async (req, res) => {
+  const { settings } = req.body;
+  const userId = req.user.id;
+  
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ success: false, error: '无效的设置数据' });
+  }
+  
+  try {
+    const connection = await pool.getConnection();
+    
+    // 开始事务
+    await connection.beginTransaction();
+    
+    try {
+      for (const [key, value] of Object.entries(settings)) {
+        // 检查设置是否已存在
+        const [existingSettings] = await connection.query(
+          'SELECT id FROM user_settings WHERE user_id = ? AND setting_key = ?',
+          [userId, key]
+        );
+        
+        if (existingSettings.length > 0) {
+          // 更新已存在的设置
+          await connection.query(
+            'UPDATE user_settings SET setting_value = ? WHERE user_id = ? AND setting_key = ?',
+            [JSON.stringify(value), userId, key]
+          );
+        } else {
+          // 创建新设置
+          await connection.query(
+            'INSERT INTO user_settings (user_id, setting_key, setting_value) VALUES (?, ?, ?)',
+            [userId, key, JSON.stringify(value)]
+          );
+        }
+      }
+      
+      // 提交事务
+      await connection.commit();
+      connection.release();
+      
+      return res.json({
+        success: true,
+        message: '设置已保存'
+      });
+    } catch (error) {
+      // 回滚事务
+      await connection.rollback();
+      connection.release();
+      throw error;
+    }
+  } catch (error) {
+    console.error('保存设置失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取用户设置
+app.get('/api/settings', authenticateToken, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    
+    // 查询用户设置
+    const [settings] = await connection.query(
+      'SELECT setting_key, setting_value FROM user_settings WHERE user_id = ?',
+      [req.user.id]
+    );
+    
+    connection.release();
+    
+    // 转换为对象格式
+    const settingsObj = {};
+    settings.forEach(setting => {
+      try {
+        settingsObj[setting.setting_key] = JSON.parse(setting.setting_value);
+      } catch (e) {
+        settingsObj[setting.setting_key] = setting.setting_value;
+      }
+    });
+    
+    return res.json({
+      success: true,
+      settings: settingsObj
+    });
+  } catch (error) {
+    console.error('获取用户设置失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // 数据库调试路由
@@ -269,6 +546,43 @@ app.get('/api/debug/add-uuid-column', async (req, res) => {
   }
 });
 
+// 测试数据库连接
+app.post('/api/testConnection', async (req, res) => {
+  const { host, port, database, user, password } = req.body;
+  
+  // 创建测试连接配置
+  const testConfig = {
+    host: host || dbConfig.host,
+    port: port || dbConfig.port,
+    user: user || dbConfig.user,
+    password: password || dbConfig.password,
+    database: database || dbConfig.database
+  };
+  
+  try {
+    // 创建临时连接进行测试
+    const testConnection = await mysql.createConnection(testConfig);
+    await testConnection.connect();
+    
+    // 尝试简单查询
+    await testConnection.query('SELECT 1');
+    
+    // 关闭连接
+    await testConnection.end();
+    
+    return res.json({
+      success: true,
+      message: '数据库连接成功'
+    });
+  } catch (error) {
+    console.error('数据库连接测试失败:', error);
+    return res.status(500).json({
+      success: false, 
+      error: error.message || '连接失败'
+    });
+  }
+});
+
 // 创建数据库连接池
 const pool = mysql.createPool(dbConfig);
 
@@ -277,11 +591,27 @@ async function initDatabase() {
   try {
     const connection = await pool.getConnection();
     
-    // 创建表（如果不存在）
+    // 创建用户表（如果不存在）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        email VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        last_login DATETIME,
+        UNIQUE KEY (username),
+        UNIQUE KEY (email)
+      )
+    `);
+    
+    // 创建投资记录表（如果不存在）
     await connection.query(`
       CREATE TABLE IF NOT EXISTS investment_records (
         id INT AUTO_INCREMENT PRIMARY KEY,
         uuid VARCHAR(36) NOT NULL,
+        user_id INT NOT NULL,
         date DATETIME NOT NULL,
         amount DECIMAL(15, 8) NOT NULL,
         btc_price DECIMAL(15, 2) NOT NULL,
@@ -289,8 +619,23 @@ async function initDatabase() {
         currency VARCHAR(5) NOT NULL DEFAULT 'USD',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY (date),
-        UNIQUE KEY (uuid)
+        UNIQUE KEY (uuid),
+        UNIQUE KEY (user_id, date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+    
+    // 创建用户设置表（如果不存在）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        setting_key VARCHAR(50) NOT NULL,
+        setting_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY (user_id, setting_key),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
     
@@ -301,89 +646,75 @@ async function initDatabase() {
   }
 }
 
-// 测试数据库连接
-app.post('/api/testConnection', async (req, res) => {
-  const config = req.body;
-  
+// 生成UUID
+function generateUUID() {
+  return uuidv4();
+}
+
+// 获取记录API
+app.get('/api/getRecords', authenticateToken, async (req, res) => {
   try {
-    // 尝试创建一个临时连接
-    const tempPool = mysql.createPool({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database
-    });
+    const connection = await pool.getConnection();
     
-    const connection = await tempPool.getConnection();
+    const [records] = await connection.query(
+      'SELECT * FROM investment_records WHERE user_id = ? ORDER BY date',
+      [req.user.id]
+    );
+    
     connection.release();
     
-    console.log('数据库连接测试成功:', config.host);
-    res.json({ success: true, message: '连接成功' });
+    return res.json({
+      success: true,
+      records: records
+    });
   } catch (error) {
-    console.error('数据库连接测试失败:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('获取记录失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // 保存单条记录
-app.post('/api/saveRecord', async (req, res) => {
+app.post('/api/saveRecord', authenticateToken, async (req, res) => {
   const { record } = req.body;
-  
-  console.log('收到保存单条记录请求:', {
-    date: record.date,
-    amount: record.amount,
-    btcPrice: record.btcPrice,
-    note: record.note ? '有备注' : '无备注',
-    currency: record.currency || 'USD'
-  });
-  
-  // 验证记录
-  if (!record || !record.date || isNaN(parseFloat(record.amount)) || isNaN(parseFloat(record.btcPrice))) {
-    return res.status(400).json({ 
-      success: false, 
-      error: '无效的记录格式，缺少必要字段或格式错误' 
-    });
+
+  if (!record || !record.date || isNaN(record.amount) || isNaN(record.btcPrice)) {
+    return res.status(400).json({ success: false, error: '无效的记录数据' });
   }
+  
+  // 格式化日期
+  let formattedDate;
+  try {
+    formattedDate = formatDateTime(new Date(record.date));
+  } catch (error) {
+    return res.status(400).json({ success: false, error: '无效的日期格式' });
+  }
+  
+  // 生成UUID（如果不存在）
+  const uuid = record.uuid || generateUUID();
   
   try {
     const connection = await pool.getConnection();
     
-    // 处理日期格式 - 确保它是MySQL兼容的格式
-    let formattedDate;
-    if (record.date.includes('T')) {
-      // 如果是ISO格式 (2023-04-29T15:30:00)，转换为MySQL格式 (2023-04-29 15:30:00)
-      formattedDate = record.date.replace('T', ' ');
-    } else {
-      // 已经是MySQL格式或其他格式，保持原样
-      formattedDate = record.date;
-    }
-    
-    console.log('处理后的日期格式:', formattedDate);
-    
-    // 生成UUID作为唯一标识
-    const uuid = record.uuid || generateUUID();
-    
-    // 先检查是否存在同一日期的记录（避免重复）
+    // 检查是否存在相同日期的记录（对于同一用户）
     const [existing] = await connection.query(
-      'SELECT COUNT(*) AS count FROM investment_records WHERE date = ?', 
-      [formattedDate]
+      'SELECT COUNT(*) as count FROM investment_records WHERE user_id = ? AND date = ?',
+      [req.user.id, formattedDate]
     );
     
-    console.log('检查现有记录:', existing[0].count > 0 ? '找到相同日期记录' : '未找到相同记录');
-    
     let result;
+    
     if (existing[0].count > 0) {
       // 如果存在则更新
       console.log('找到已存在的相同日期记录，执行更新操作');
       [result] = await connection.query(
-        'UPDATE investment_records SET amount = ?, btc_price = ?, note = ?, currency = ?, uuid = ? WHERE date = ?',
+        'UPDATE investment_records SET amount = ?, btc_price = ?, note = ?, currency = ?, uuid = ? WHERE user_id = ? AND date = ?',
         [
           parseFloat(record.amount), 
           parseFloat(record.btcPrice), 
           record.note || '', 
           record.currency || 'USD',
           uuid,
+          req.user.id,
           formattedDate
         ]
       );
@@ -392,6 +723,7 @@ app.post('/api/saveRecord', async (req, res) => {
       // 不存在则插入
       console.log('创建新记录, SQL参数:', [
         uuid,
+        req.user.id,
         formattedDate, 
         parseFloat(record.amount), 
         parseFloat(record.btcPrice), 
@@ -400,9 +732,10 @@ app.post('/api/saveRecord', async (req, res) => {
       ]);
       
       [result] = await connection.query(
-        'INSERT INTO investment_records (uuid, date, amount, btc_price, note, currency) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO investment_records (uuid, user_id, date, amount, btc_price, note, currency) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [
           uuid,
+          req.user.id,
           formattedDate, 
           parseFloat(record.amount), 
           parseFloat(record.btcPrice), 
@@ -414,8 +747,8 @@ app.post('/api/saveRecord', async (req, res) => {
     }
     
     // 检查表中的记录
-    const [checkResult] = await connection.query('SELECT COUNT(*) as count FROM investment_records');
-    console.log('当前表中记录数量:', checkResult[0].count);
+    const [checkResult] = await connection.query('SELECT COUNT(*) as count FROM investment_records WHERE user_id = ?', [req.user.id]);
+    console.log('当前用户表中记录数量:', checkResult[0].count);
     
     connection.release();
     return res.json({ 
@@ -431,16 +764,57 @@ app.post('/api/saveRecord', async (req, res) => {
   }
 });
 
-// 生成UUID
-function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
+// 删除记录
+app.delete('/api/deleteRecord/:uuid', authenticateToken, async (req, res) => {
+  const { uuid } = req.params;
+  
+  console.log(`收到删除记录请求, UUID: ${uuid}, 用户: ${req.user.username}(ID:${req.user.id})`);
+  
+  if (!uuid) {
+    console.log('删除记录失败: 未提供UUID');
+    return res.status(400).json({ success: false, error: '记录UUID是必需的' });
+  }
+  
+  try {
+    const connection = await pool.getConnection();
+    
+    // 查询记录是否存在且属于当前用户
+    const [records] = await connection.query(
+      'SELECT id FROM investment_records WHERE uuid = ? AND user_id = ?',
+      [uuid, req.user.id]
+    );
+    
+    if (records.length === 0) {
+      console.log(`删除记录失败: 未找到记录或不属于当前用户, UUID: ${uuid}, 用户ID: ${req.user.id}`);
+      connection.release();
+      return res.status(404).json({ success: false, error: '记录不存在或不属于当前用户' });
+    }
+    
+    console.log(`找到要删除的记录, ID: ${records[0].id}, UUID: ${uuid}`);
+    
+    // 删除记录
+    const [result] = await connection.query(
+      'DELETE FROM investment_records WHERE uuid = ? AND user_id = ?',
+      [uuid, req.user.id]
+    );
+    
+    connection.release();
+    
+    console.log(`记录删除成功, UUID: ${uuid}, 影响行数: ${result.affectedRows}`);
+    
+    return res.json({
+      success: true,
+      message: '记录已成功删除',
+      affectedRows: result.affectedRows
+    });
+  } catch (error) {
+    console.error('删除记录失败:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // 保存多条记录（清空后全部替换）
-app.post('/api/saveRecords', async (req, res) => {
+app.post('/api/saveRecords', authenticateToken, async (req, res) => {
   const { records } = req.body;
   
   // 添加请求体日志（但移除敏感信息）
@@ -462,253 +836,57 @@ app.post('/api/saveRecords', async (req, res) => {
     console.log('开始数据库事务');
     
     try {
-      // 清空表
-      await connection.query('TRUNCATE TABLE investment_records');
-      console.log('表已清空');
+      // 清空当前用户的记录
+      await connection.query('DELETE FROM investment_records WHERE user_id = ?', [req.user.id]);
+      console.log('用户记录已清空');
+      
+      // 如果没有记录要保存，直接提交事务
+      if (records.length === 0) {
+        await connection.commit();
+        connection.release();
+        return res.json({ 
+          success: true, 
+          message: '所有记录已删除',
+          insertedCount: 0
+        });
+      }
+      
+      // 准备批量插入记录
+      const values = records.map(record => [
+        record.uuid || generateUUID(),
+        req.user.id,
+        formatDateTime(new Date(record.date)),
+        parseFloat(record.amount),
+        parseFloat(record.btcPrice),
+        record.note || '',
+        record.currency || 'USD'
+      ]);
       
       // 批量插入记录
-      if (records.length > 0) {
-        // 检查记录格式
-        let hasFormatError = false;
-        let errorDetails = [];
-        
-        const values = records.map((r, i) => {
-          if (!r.date || isNaN(parseFloat(r.amount)) || isNaN(parseFloat(r.btcPrice))) {
-            console.error(`记录 #${i} 格式无效:`, r);
-            hasFormatError = true;
-            errorDetails.push(`记录 #${i}: 缺少必要字段或格式不正确`);
-            return null;
-          }
-          
-          // 处理日期格式
-          let formattedDate = r.date;
-          if (formattedDate.includes('T')) {
-            formattedDate = formattedDate.replace('T', ' ');
-          }
-          
-          // 确保每条记录都有UUID
-          const uuid = r.uuid || generateUUID();
-          
-          return [
-            uuid,
-            formattedDate, 
-            parseFloat(r.amount), 
-            parseFloat(r.btcPrice), 
-            r.note || '', 
-            r.currency || 'USD'
-          ];
-        }).filter(v => v !== null);
-        
-        if (hasFormatError) {
-          throw new Error('部分记录格式无效，请检查日期、金额和价格字段\n' + errorDetails.join('\n'));
-        }
-        
-        // 如果记录太多，分批插入
-        const BATCH_SIZE = 100; // 每批插入的记录数
-        let insertedCount = 0;
-        
-        for (let i = 0; i < values.length; i += BATCH_SIZE) {
-          const batch = values.slice(i, i + BATCH_SIZE);
-          console.log(`准备插入第${i/BATCH_SIZE + 1}批，共${batch.length}条记录`);
-          
-          const insertSql = 'INSERT INTO investment_records (uuid, date, amount, btc_price, note, currency) VALUES ?';
-          const [result] = await connection.query(insertSql, [batch]);
-          
-          insertedCount += result.affectedRows;
-          console.log(`批次${i/BATCH_SIZE + 1}插入成功，累计${insertedCount}条记录`);
-        }
-      }
+      const [result] = await connection.query(
+        'INSERT INTO investment_records (uuid, user_id, date, amount, btc_price, note, currency) VALUES ?',
+        [values]
+      );
       
       // 提交事务
       await connection.commit();
-      console.log('事务已提交');
       
-      // 验证插入
-      const [result] = await connection.query('SELECT COUNT(*) as count FROM investment_records');
-      const actualCount = result[0].count;
-      console.log(`数据库中现有 ${actualCount} 条记录`);
+      console.log('记录已保存, 影响行数:', result.affectedRows);
       
       connection.release();
       return res.json({ 
         success: true, 
-        message: `成功保存 ${records.length} 条记录`,
-        expectedCount: records.length,
-        actualCount: actualCount
+        message: '所有记录已更新',
+        insertedCount: result.affectedRows
       });
     } catch (error) {
       // 回滚事务
-      console.error('保存记录失败，回滚事务:', error);
       await connection.rollback();
       connection.release();
       throw error;
     }
   } catch (error) {
-    console.error('保存记录操作失败:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      details: '保存记录到数据库时发生错误'
-    });
-  }
-});
-
-// 获取所有记录
-app.post('/api/getRecords', async (req, res) => {
-  try {
-    const connection = await pool.getConnection();
-    
-    // 查询所有记录并按日期排序
-    const [rows] = await connection.query(
-      'SELECT uuid, date, amount, btc_price AS btcPrice, note, currency FROM investment_records ORDER BY date'
-    );
-    
-    // 格式化日期并确保数值类型正确
-    const records = rows.map(row => {
-      return {
-        uuid: row.uuid,
-        date: formatDateTime(row.date),
-        amount: parseFloat(row.amount),
-        btcPrice: parseFloat(row.btcPrice),
-        note: row.note || '',
-        currency: row.currency || 'USD'
-      };
-    });
-    
-    console.log('已从数据库获取记录数量:', records.length);
-    if (records.length > 0) {
-      console.log('第一条记录示例:', records[0]);
-    }
-    
-    connection.release();
-    res.json({ success: true, records });
-  } catch (error) {
-    console.error('获取记录失败:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 更新记录
-app.post('/api/updateRecord', async (req, res) => {
-  const { originalDate, updatedRecord } = req.body;
-  
-  try {
-    const connection = await pool.getConnection();
-    
-    // 更新记录
-    await connection.query(
-      'UPDATE investment_records SET date = ?, amount = ?, btc_price = ?, note = ?, currency = ? WHERE date = ?',
-      [
-        updatedRecord.date, 
-        updatedRecord.amount, 
-        updatedRecord.btcPrice, 
-        updatedRecord.note || '', 
-        updatedRecord.currency || 'USD',
-        originalDate
-      ]
-    );
-    
-    connection.release();
-    res.json({ success: true });
-  } catch (error) {
-    console.error('更新记录失败:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 删除记录
-app.post('/api/deleteRecord', async (req, res) => {
-  const { recordDate, date } = req.body;
-  
-  // 兼容新旧参数名
-  const dateToUse = recordDate || date;
-  
-  console.log('收到删除记录请求，日期:', dateToUse);
-  
-  if (!dateToUse) {
-    return res.status(400).json({ success: false, error: '未提供记录日期' });
-  }
-  
-  try {
-    const connection = await pool.getConnection();
-    
-    // 处理日期格式 - 确保它是MySQL兼容的格式
-    let formattedDate;
-    if (dateToUse.includes('T')) {
-      // 如果是ISO格式 (2023-04-29T15:30:00)，转换为MySQL格式 (2023-04-29 15:30:00)
-      formattedDate = dateToUse.replace('T', ' ');
-    } else {
-      // 已经是MySQL格式或其他格式，保持原样
-      formattedDate = dateToUse;
-    }
-    
-    console.log('处理后的日期格式用于删除:', formattedDate);
-    
-    // 先检查记录是否存在
-    const [checkResult] = await connection.query(
-      'SELECT COUNT(*) as count FROM investment_records WHERE date = ?', 
-      [formattedDate]
-    );
-    
-    console.log('检查要删除的记录:', checkResult[0].count > 0 ? '记录存在' : '记录不存在');
-    
-    if (checkResult[0].count === 0) {
-      // 尝试使用其他格式再次检查
-      const dateObj = new Date(dateToUse);
-      if (!isNaN(dateObj.getTime())) {
-        // 有效日期，尝试不同格式
-        const mysqlFormat = dateObj.toISOString().slice(0, 19).replace('T', ' ');
-        console.log('尝试另一种日期格式:', mysqlFormat);
-        
-        const [retryCheck] = await connection.query(
-          'SELECT COUNT(*) as count FROM investment_records WHERE date = ?', 
-          [mysqlFormat]
-        );
-        
-        if (retryCheck[0].count > 0) {
-          console.log('使用格式化后的日期找到了记录');
-          formattedDate = mysqlFormat;
-        } else {
-          connection.release();
-          return res.status(404).json({ 
-            success: false, 
-            error: '未找到指定日期的记录',
-            date: dateToUse,
-            formattedDate: formattedDate,
-            mysqlFormat: mysqlFormat
-          });
-        }
-      } else {
-        connection.release();
-        return res.status(404).json({ 
-          success: false, 
-          error: '未找到指定日期的记录',
-          date: dateToUse,
-          formattedDate: formattedDate
-        });
-      }
-    }
-    
-    // 删除记录
-    const [result] = await connection.query(
-      'DELETE FROM investment_records WHERE date = ?', 
-      [formattedDate]
-    );
-    
-    console.log('删除记录结果:', result);
-    
-    // 检查表中的记录
-    const [countCheck] = await connection.query('SELECT COUNT(*) as count FROM investment_records');
-    console.log('删除后表中记录数量:', countCheck[0].count);
-    
-    connection.release();
-    return res.json({ 
-      success: true, 
-      message: '记录已删除',
-      affectedRows: result.affectedRows,
-      remainingRecords: countCheck[0].count
-    });
-  } catch (error) {
-    console.error('删除记录失败:', error);
+    console.error('保存记录失败:', error);
     return res.status(500).json({ 
       success: false, 
       error: error.message,
@@ -717,84 +895,31 @@ app.post('/api/deleteRecord', async (req, res) => {
   }
 });
 
-// 新增 - 检查单条记录是否存在
-app.post('/api/checkRecord', async (req, res) => {
-  const { date } = req.body;
-  
-  if (!date) {
-    return res.status(400).json({ success: false, error: '未提供日期' });
-  }
-  
-  try {
-    const connection = await pool.getConnection();
-    
-    const [result] = await connection.query(
-      'SELECT * FROM investment_records WHERE date = ?', 
-      [date]
-    );
-    
-    connection.release();
-    
-    if (result.length > 0) {
-      return res.json({ 
-        success: true, 
-        exists: true, 
-        record: {
-          date: formatDateTime(result[0].date),
-          amount: parseFloat(result[0].amount),
-          btcPrice: parseFloat(result[0].btc_price),
-          note: result[0].note,
-          currency: result[0].currency
-        }
-      });
-    } else {
-      return res.json({ success: true, exists: false });
-    }
-  } catch (error) {
-    console.error('检查记录失败:', error);
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 清空所有记录
-app.post('/api/clearRecords', async (req, res) => {
-  try {
-    const connection = await pool.getConnection();
-    
-    // 清空表
-    await connection.query('TRUNCATE TABLE investment_records');
-    
-    connection.release();
-    res.json({ success: true });
-  } catch (error) {
-    console.error('清空记录失败:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 格式化日期时间为HTML datetime-local格式
+// 格式化日期时间为MySQL格式
 function formatDateTime(dateObj) {
-  const date = new Date(dateObj);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  if (!(dateObj instanceof Date)) {
+    try {
+      dateObj = new Date(dateObj);
+    } catch (error) {
+      console.error('无效的日期格式:', dateObj);
+      throw new Error('无效的日期格式');
+    }
+  }
   
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+  
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 // 启动服务器
-app.listen(PORT, async () => {
-  console.log(`服务器运行在 http://localhost:${PORT}`);
-  await initDatabase();
-});
-
-// 处理未捕获的异常
-process.on('uncaughtException', (error) => {
-  console.error('未捕获的异常:', error);
-});
-
-process.on('unhandledRejection', (error) => {
-  console.error('未处理的Promise拒绝:', error);
+app.listen(PORT, () => {
+  console.log(`服务已启动在端口 ${PORT}`);
+  initDatabase().catch(error => {
+    console.error('初始化数据库时出错:', error);
+  });
 }); 

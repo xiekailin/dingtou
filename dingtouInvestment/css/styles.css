@@ -362,4 +362,47 @@ input:checked + .toggle-slider:before {
 /* 隐藏超出显示限制的记录 */
 .hidden-record {
     display: none;
+}
+
+/* 用户信息栏样式 */
+.user-profile-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.app-title {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+.user-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+}
+
+.btn-logout {
+    padding: 5px 10px;
+    background-color: white;
+    color: #4CAF50;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: bold;
+}
+
+.btn-logout:hover {
+    background-color: #f5f5f5;
 } 

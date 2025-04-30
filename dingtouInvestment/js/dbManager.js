@@ -16,6 +16,10 @@ let lastConnectionTime = null;
 let healthCheckInterval = null;
 const HEALTH_CHECK_INTERVAL = 300000; // 5分钟检查一次数据库连接状态
 
+// 用户认证相关
+let currentUser = null;
+let authToken = null;
+
 /**
  * 从localStorage加载数据库配置
  */
@@ -36,9 +40,26 @@ function loadDbConfig() {
         useDatabase = savedUseDb === 'true';
     }
     
+    // 加载用户认证信息
+    const savedToken = localStorage.getItem('authToken');
+    const savedUser = localStorage.getItem('currentUser');
+    
+    if (savedToken) {
+        authToken = savedToken;
+        try {
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+            }
+        } catch (error) {
+            console.error('解析保存的用户信息失败:', error);
+        }
+    }
+    
     return {
         config: dbConfig,
-        useDatabase: useDatabase
+        useDatabase: useDatabase,
+        user: currentUser,
+        isAuthenticated: !!authToken
     };
 }
 
@@ -297,21 +318,24 @@ async function syncFromDatabase() {
             throw new Error('数据库未连接');
         }
         
-        const response = await axios.post('/api/getRecords', {
-            ...dbConfig,
-            timestamp: Date.now() // 添加时间戳避免缓存
-        }, {
-            timeout: 30000 // 30秒超时
+        if (!authToken) {
+            throw new Error('用户未登录');
+        }
+        
+        const response = await axios.get('/api/getRecords', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
+            timeout: 15000 // 15秒超时，因为可能有大量记录
         });
         
-        if (response.data.success && Array.isArray(response.data.records)) {
+        if (response.data.success) {
             return {
                 success: true,
-                records: response.data.records,
-                message: `从数据库同步了 ${response.data.records.length} 条记录`
+                records: response.data.records
             };
         } else {
-            throw new Error(response.data.error || '同步失败');
+            throw new Error(response.data.error || '未知错误');
         }
     }, [], 2);
 }
@@ -326,96 +350,35 @@ async function syncToDatabase(records) {
             throw new Error('数据库未连接');
         }
         
-        // 分批处理大量记录，避免一次性发送过多数据
-        const BATCH_SIZE = 50;
-        if (records.length > BATCH_SIZE) {
-            console.log(`记录数量较多 (${records.length})，将分批同步到数据库...`);
-            
-            let successCount = 0;
-            let failedCount = 0;
-            
-            for (let i = 0; i < records.length; i += BATCH_SIZE) {
-                const batch = records.slice(i, i + BATCH_SIZE);
-                console.log(`同步批次 ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(records.length/BATCH_SIZE)}，记录数: ${batch.length}`);
-                
-                const response = await fetch('/api/saveRecords', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ 
-                        config: dbConfig,
-                        records: batch,
-                        timestamp: Date.now()
-                    })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    failedCount += batch.length;
-                    console.error(`批次 ${Math.floor(i/BATCH_SIZE) + 1} 同步失败:`, errorData.error || '未知错误');
-                } else {
-                    const result = await response.json();
-                    if (result.success) {
-                        successCount += result.actualCount || 0;
-                    } else {
-                        failedCount += batch.length;
-                    }
-                }
-                
-                // 批次间等待，避免服务器负载过高
-                if (i + BATCH_SIZE < records.length) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
+        if (!authToken) {
+            throw new Error('用户未登录');
+        }
+        
+        // 格式化记录，确保日期格式正确
+        const formattedRecords = records.map(record => {
+            let formattedRecord = { ...record };
+            if (typeof formattedRecord.date === 'string' && formattedRecord.date.includes('T')) {
+                formattedRecord.date = formattedRecord.date.replace('T', ' ');
             }
-            
-            if (failedCount > 0) {
-                return {
-                    success: successCount > 0,
-                    message: `成功同步 ${successCount}/${records.length} 条记录到数据库，${failedCount} 条记录同步失败`,
-                    expectedCount: records.length,
-                    actualCount: successCount
-                };
-            } else {
-                return {
-                    success: true,
-                    message: `成功同步 ${successCount} 条记录到数据库`,
-                    expectedCount: records.length,
-                    actualCount: successCount
-                };
-            }
+            return formattedRecord;
+        });
+        
+        const response = await axios.post('/api/saveRecords', {
+            records: formattedRecords
+        }, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
+            timeout: 30000 // 30秒超时，因为可能有大量记录
+        });
+        
+        if (response.data.success) {
+            return {
+                success: true,
+                message: `成功同步 ${formattedRecords.length} 条记录到数据库`
+            };
         } else {
-            // 少量记录，直接同步
-            const response = await fetch('/api/saveRecords', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    config: dbConfig,
-                    records,
-                    timestamp: Date.now()
-                }),
-                timeout: 30000 // 30秒超时
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(`服务器错误: ${errorData.error || '未知错误'}`);
-            }
-
-            const result = await response.json();
-            
-            if (result.success) {
-                return {
-                    success: true,
-                    message: `成功同步 ${result.actualCount || 0} 条记录到数据库`,
-                    expectedCount: records.length,
-                    actualCount: result.actualCount
-                };
-            } else {
-                throw new Error(result.error);
-            }
+            throw new Error(response.data.error || '未知错误');
         }
     }, [records], 2);
 }
@@ -430,6 +393,10 @@ async function saveRecordToDatabase(record) {
             throw new Error('数据库未连接');
         }
         
+        if (!authToken) {
+            throw new Error('用户未登录');
+        }
+        
         // 确保日期格式正确
         let sqlFormattedRecord = {...record};
         if (sqlFormattedRecord.date.includes('T')) {
@@ -437,17 +404,24 @@ async function saveRecordToDatabase(record) {
         }
         
         const response = await axios.post('/api/saveRecord', {
-            config: dbConfig,
-            record: sqlFormattedRecord,
-            timestamp: Date.now()
+            record: sqlFormattedRecord
         }, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
             timeout: 10000 // 10秒超时
         });
         
         if (response.data.success) {
+            // 如果服务器生成了UUID，更新记录中的UUID
+            if (response.data.uuid) {
+                sqlFormattedRecord.uuid = response.data.uuid;
+            }
+            
             return {
                 success: true,
-                message: '记录已成功保存到数据库'
+                message: '记录已成功保存到数据库',
+                record: sqlFormattedRecord
             };
         } else {
             throw new Error(response.data.error || '未知错误');
@@ -457,43 +431,52 @@ async function saveRecordToDatabase(record) {
 
 /**
  * 从数据库删除记录
- * @param {string} recordDate 记录日期
+ * @param {string} uuid 记录UUID
  */
-async function deleteRecordFromDatabase(recordDate) {
+async function deleteRecordFromDatabase(uuid) {
     return executeWithRetry(async () => {
         if (!dbConnected) {
             throw new Error('数据库未连接');
         }
         
-        // 确保日期格式正确
-        let formattedDate = recordDate;
-        if (formattedDate && formattedDate.includes('T')) {
-            formattedDate = formattedDate.replace('T', ' ');
+        if (!authToken) {
+            throw new Error('用户未登录');
         }
         
-        // 如果recordDate为undefined，记录错误
-        if (!recordDate) {
-            console.error('删除记录错误: recordDate参数为undefined');
-            throw new Error('记录日期不能为空');
-        }
-        
-        const response = await axios.post('/api/deleteRecord', {
-            config: dbConfig,
-            recordDate: formattedDate,  // 修改为与服务器端参数名一致
-            timestamp: Date.now()
-        }, {
-            timeout: 10000 // 10秒超时
+        // 打印调试信息
+        console.log('删除记录请求：', {
+            url: `/api/deleteRecord/${uuid}`,
+            authToken: authToken ? '已设置' : '未设置',
+            uuid: uuid
         });
         
-        if (response.data.success) {
-            return {
-                success: true,
-                message: '记录已成功从数据库删除'
-            };
-        } else {
-            throw new Error(response.data.error || '未知错误');
+        try {
+            const response = await axios.delete(`/api/deleteRecord/${uuid}`, {
+                headers: {
+                    'Authorization': `Bearer ${authToken}`
+                },
+                timeout: 10000 // 10秒超时
+            });
+            
+            console.log('删除记录响应：', response.data);
+            
+            if (response.data.success) {
+                return {
+                    success: true,
+                    message: '记录已从数据库删除'
+                };
+            } else {
+                throw new Error(response.data.error || '未知错误');
+            }
+        } catch (error) {
+            console.error('删除记录错误详情：', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status
+            });
+            throw error;
         }
-    }, [recordDate], 2);
+    }, [uuid], 2);
 }
 
 /**
@@ -505,17 +488,24 @@ async function clearDatabaseRecords() {
             throw new Error('数据库未连接');
         }
         
-        const response = await axios.post('/api/clearRecords', {
-            config: dbConfig,
-            timestamp: Date.now()
+        if (!authToken) {
+            throw new Error('用户未登录');
+        }
+        
+        // 使用空数组调用saveRecords即可清空
+        const response = await axios.post('/api/saveRecords', {
+            records: []
         }, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
             timeout: 10000 // 10秒超时
         });
         
         if (response.data.success) {
             return {
                 success: true,
-                message: '所有记录已成功从数据库清除'
+                message: '所有记录已从数据库删除'
             };
         } else {
             throw new Error(response.data.error || '未知错误');
@@ -566,10 +556,199 @@ async function updateRecordInDatabase(record, originalDate) {
     }, [record, originalDate], 2);
 }
 
+/**
+ * 注册新用户
+ * @param {string} username 用户名
+ * @param {string} password 密码
+ * @param {string} email 邮箱（可选）
+ */
+async function registerUser(username, password, email = null) {
+    try {
+        const response = await axios.post('/api/register', {
+            username,
+            password,
+            email
+        }, {
+            timeout: 10000 // 10秒超时
+        });
+        
+        if (response.data.success) {
+            // 保存认证信息
+            authToken = response.data.token;
+            currentUser = response.data.user;
+            
+            // 存储到localStorage
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            return {
+                success: true,
+                message: '注册成功',
+                user: currentUser
+            };
+        } else {
+            throw new Error(response.data.error || '注册失败');
+        }
+    } catch (error) {
+        console.error('用户注册失败:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+}
+
+/**
+ * 用户登录
+ * @param {string} username 用户名
+ * @param {string} password 密码
+ */
+async function loginUser(username, password) {
+    try {
+        const response = await axios.post('/api/login', {
+            username,
+            password
+        }, {
+            timeout: 10000 // 10秒超时
+        });
+        
+        if (response.data.success) {
+            // 保存认证信息
+            authToken = response.data.token;
+            currentUser = response.data.user;
+            
+            // 存储到localStorage
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            return {
+                success: true,
+                message: '登录成功',
+                user: currentUser
+            };
+        } else {
+            throw new Error(response.data.error || '登录失败');
+        }
+    } catch (error) {
+        console.error('用户登录失败:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+}
+
+/**
+ * 用户登出
+ */
+function logoutUser() {
+    authToken = null;
+    currentUser = null;
+    
+    // 从localStorage移除
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('currentUser');
+    
+    return {
+        success: true,
+        message: '已登出'
+    };
+}
+
+/**
+ * 获取当前登录的用户
+ */
+function getCurrentUser() {
+    return currentUser;
+}
+
+/**
+ * 检查用户是否已认证
+ */
+function isAuthenticated() {
+    return !!authToken;
+}
+
+/**
+ * 获取用户设置
+ */
+async function getUserSettings() {
+    if (!authToken) {
+        return {
+            success: false,
+            error: '用户未登录'
+        };
+    }
+    
+    try {
+        const response = await axios.get('/api/getSettings', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
+            timeout: 10000
+        });
+        
+        if (response.data.success) {
+            return {
+                success: true,
+                settings: response.data.settings
+            };
+        } else {
+            throw new Error(response.data.error || '获取设置失败');
+        }
+    } catch (error) {
+        console.error('获取用户设置失败:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+}
+
+/**
+ * 保存用户设置
+ * @param {Object} settings 设置对象
+ */
+async function saveUserSettings(settings) {
+    if (!authToken) {
+        return {
+            success: false,
+            error: '用户未登录'
+        };
+    }
+    
+    try {
+        const response = await axios.post('/api/saveSettings', {
+            settings
+        }, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            },
+            timeout: 10000
+        });
+        
+        if (response.data.success) {
+            return {
+                success: true,
+                message: '设置已保存'
+            };
+        } else {
+            throw new Error(response.data.error || '保存设置失败');
+        }
+    } catch (error) {
+        console.error('保存用户设置失败:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+}
+
 // 导出模块接口
 export {
     loadDbConfig,
     saveDbConfig,
+    resetConnection,
     setDatabaseEnabled,
     isDatabaseEnabled,
     isDatabaseConnected,
@@ -580,5 +759,13 @@ export {
     saveRecordToDatabase,
     deleteRecordFromDatabase,
     updateRecordInDatabase,
-    clearDatabaseRecords
+    clearDatabaseRecords,
+    // 用户认证相关接口
+    registerUser,
+    loginUser,
+    logoutUser,
+    getCurrentUser,
+    isAuthenticated,
+    getUserSettings,
+    saveUserSettings
 }; 

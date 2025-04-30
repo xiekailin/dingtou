@@ -11,6 +11,21 @@ let btcAmountChart;
 let profitRateChart;
 
 /**
+ * 初始化所有图表
+ * @param {number} currentBtcPrice 当前比特币价格
+ */
+function initCharts(currentBtcPrice) {
+    // 如果没有记录，不需要绘制图表
+    const records = getChronologicalRecords();
+    if (records.length === 0) {
+        return;
+    }
+    
+    // 更新所有图表
+    updateAllCharts(currentBtcPrice);
+}
+
+/**
  * 更新所有图表
  * @param {number} currentBtcPrice 当前比特币价格
  */
@@ -385,6 +400,7 @@ function clearAllCharts() {
 
 // 导出模块接口
 export {
+    initCharts,
     updateAllCharts,
     clearAllCharts
 }; 

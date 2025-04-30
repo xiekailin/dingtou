@@ -274,6 +274,19 @@ function generateUUID() {
     });
 }
 
+/**
+ * 直接更新记录数组并保存
+ * @param {Array} newRecords 新的记录数组
+ */
+function updateRecordsInStorage(newRecords) {
+    if (!Array.isArray(newRecords)) {
+        throw new Error('记录必须是数组');
+    }
+    records = [...newRecords];
+    saveRecordsToLocalStorage();
+    return records;
+}
+
 // 导出模块接口
 export {
     loadRecords,
@@ -288,5 +301,6 @@ export {
     getSelectedCurrency,
     getAllRecords,
     getSortedRecords,
-    getChronologicalRecords
+    getChronologicalRecords,
+    updateRecordsInStorage
 }; 

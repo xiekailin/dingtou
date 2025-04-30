@@ -30,17 +30,37 @@ function updateCurrencyLabels() {
 
 /**
  * 更新当前BTC价格显示
+ * @param {number} price BTC价格
+ * @param {boolean} isCache 是否是缓存的价格
+ * @param {boolean} isStale 价格是否过期
  */
-function updateCurrentPriceDisplay() {
+function updateBtcPriceDisplay(price, isCache = false, isStale = false) {
     const selectedCurrency = getSelectedCurrency();
-    const price = getCurrentBtcPrice(selectedCurrency);
     const currentBtcPriceElement = document.getElementById('currentBtcPrice');
+    const btcPriceInput = document.getElementById('btcPrice');
     
     if (currentBtcPriceElement) {
         currentBtcPriceElement.textContent = price.toLocaleString(
             selectedCurrency === 'USD' ? 'en-US' : 'zh-CN', 
             { maximumFractionDigits: 2 }
         );
+        
+        // 显示价格状态提示
+        if (isStale) {
+            currentBtcPriceElement.classList.add('stale-price');
+            currentBtcPriceElement.title = "价格数据已过期";
+        } else if (isCache) {
+            currentBtcPriceElement.classList.add('cached-price');
+            currentBtcPriceElement.title = "使用缓存的价格数据";
+        } else {
+            currentBtcPriceElement.classList.remove('stale-price', 'cached-price');
+            currentBtcPriceElement.title = "实时价格数据";
+        }
+    }
+    
+    // 更新表单输入框价格
+    if (btcPriceInput) {
+        btcPriceInput.value = price.toFixed(2);
     }
 }
 
@@ -55,7 +75,15 @@ function renderRecordsTable(showAll = false) {
     const toggleRecordsBtn = document.getElementById('toggleRecordsBtn');
     
     const selectedCurrency = getSelectedCurrency();
-    const currentBtcPrice = getCurrentBtcPrice(selectedCurrency);
+    let currentBtcPrice = getCurrentBtcPrice(selectedCurrency);
+    
+    // 检查并确保价格有效
+    if (!currentBtcPrice || currentBtcPrice <= 0) {
+        console.warn('渲染表格时BTC价格无效:', currentBtcPrice, '使用默认价格');
+        currentBtcPrice = selectedCurrency === 'CNY' ? 95000 * 7.2 : 95000;
+    }
+    
+    console.log('当前BTC价格:', currentBtcPrice, selectedCurrency);
     
     if (!recordList) return;
     
@@ -154,7 +182,15 @@ function renderRecordsTable(showAll = false) {
 function updateStatistics() {
     const records = getSortedRecords();
     const selectedCurrency = getSelectedCurrency();
-    const currentBtcPrice = getCurrentBtcPrice(selectedCurrency);
+    let currentBtcPrice = getCurrentBtcPrice(selectedCurrency);
+    
+    // 确保价格有效
+    if (!currentBtcPrice || currentBtcPrice <= 0) {
+        console.warn('更新统计时BTC价格无效:', currentBtcPrice, '使用默认价格');
+        currentBtcPrice = selectedCurrency === 'CNY' ? 95000 * 7.2 : 95000;
+    }
+    
+    console.log('统计计算使用的BTC价格:', currentBtcPrice, selectedCurrency);
     
     let totalInvestment = 0;
     let totalBtcAmount = 0;
@@ -463,9 +499,10 @@ function showDbConnectionResult(success, message) {
 // 导出模块接口
 export {
     updateCurrencyLabels,
-    updateCurrentPriceDisplay,
+    updateBtcPriceDisplay,
     renderRecordsTable,
     updateStatistics,
+    updateStatisticsDisplay,
     openEditModal,
     closeEditModal,
     openJsonImportModal,
@@ -477,6 +514,5 @@ export {
     showProgressIndicator,
     hideProgressIndicator,
     updateDatabaseStatusUI,
-    showDbConnectionResult,
-    attachTableEventListeners
+    showDbConnectionResult
 };

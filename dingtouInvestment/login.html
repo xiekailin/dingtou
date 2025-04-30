@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比特币定投计算器 - 登录</title>
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body {
+            background-color: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            max-width: 400px;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        }
+        .app-logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .app-logo img {
+            max-width: 120px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .auth-footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .auth-error {
+            color: #dc3545;
+            margin-top: 15px;
+            display: none;
+        }
+        .auth-success {
+            color: #28a745;
+            margin-top: 15px;
+            display: none;
+        }
+        .toggle-form {
+            cursor: pointer;
+            color: #007bff;
+        }
+        .toggle-form:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="app-logo">
+            <h2>比特币定投计算器</h2>
+            <p>多用户版</p>
+        </div>
+        
+        <!-- 登录表单 -->
+        <div id="loginForm">
+            <h3 class="text-center mb-4">用户登录</h3>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-username">用户名</label>
+                    <input type="text" class="form-control" id="login-username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">密码</label>
+                    <input type="password" class="form-control" id="login-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">登录</button>
+            </form>
+            <div class="auth-footer">
+                还没有账号？<span class="toggle-form" id="showRegister">立即注册</span>
+            </div>
+            <div class="auth-error" id="login-error"></div>
+            <div class="auth-success" id="login-success"></div>
+        </div>
+        
+        <!-- 注册表单 -->
+        <div id="registerForm" style="display: none;">
+            <h3 class="text-center mb-4">用户注册</h3>
+            <form id="register-form">
+                <div class="form-group">
+                    <label for="register-username">用户名</label>
+                    <input type="text" class="form-control" id="register-username" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-password">密码</label>
+                    <input type="password" class="form-control" id="register-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-email">电子邮箱（可选）</label>
+                    <input type="email" class="form-control" id="register-email">
+                </div>
+                <button type="submit" class="btn btn-success btn-block">注册</button>
+            </form>
+            <div class="auth-footer">
+                已有账号？<span class="toggle-form" id="showLogin">立即登录</span>
+            </div>
+            <div class="auth-error" id="register-error"></div>
+            <div class="auth-success" id="register-success"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script type="module">
+        import * as DbManager from './js/dbManager.js';
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            const showRegister = document.getElementById('showRegister');
+            const showLogin = document.getElementById('showLogin');
+            
+            const loginErrorDiv = document.getElementById('login-error');
+            const loginSuccessDiv = document.getElementById('login-success');
+            const registerErrorDiv = document.getElementById('register-error');
+            const registerSuccessDiv = document.getElementById('register-success');
+            
+            // 检查是否已登录
+            const checkAuth = async () => {
+                // 加载数据库配置（同时会加载认证信息）
+                const config = DbManager.loadDbConfig();
+                
+                if (config.isAuthenticated) {
+                    // 已登录，跳转到主页
+                    window.location.href = 'index.html';
+                }
+            };
+            
+            // 页面加载时检查认证状态
+            checkAuth();
+            
+            // 切换表单显示
+            showRegister.addEventListener('click', function() {
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+                clearMessages();
+            });
+            
+            showLogin.addEventListener('click', function() {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+                clearMessages();
+            });
+            
+            // 登录表单提交
+            document.getElementById('login-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                clearMessages();
+                
+                const username = document.getElementById('login-username').value;
+                const password = document.getElementById('login-password').value;
+                
+                if (!username || !password) {
+                    showError(loginErrorDiv, '请填写用户名和密码');
+                    return;
+                }
+                
+                try {
+                    const result = await DbManager.loginUser(username, password);
+                    
+                    if (result.success) {
+                        showSuccess(loginSuccessDiv, '登录成功，正在跳转...');
+                        setTimeout(() => {
+                            window.location.href = 'index.html';
+                        }, 1000);
+                    } else {
+                        showError(loginErrorDiv, result.error || '登录失败，请检查用户名和密码');
+                    }
+                } catch (error) {
+                    showError(loginErrorDiv, error.message || '登录时发生错误');
+                }
+            });
+            
+            // 注册表单提交
+            document.getElementById('register-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                clearMessages();
+                
+                const username = document.getElementById('register-username').value;
+                const password = document.getElementById('register-password').value;
+                const email = document.getElementById('register-email').value;
+                
+                if (!username || !password) {
+                    showError(registerErrorDiv, '请填写用户名和密码');
+                    return;
+                }
+                
+                try {
+                    const result = await DbManager.registerUser(username, password, email);
+                    
+                    if (result.success) {
+                        showSuccess(registerSuccessDiv, '注册成功，正在跳转...');
+                        setTimeout(() => {
+                            window.location.href = 'index.html';
+                        }, 1000);
+                    } else {
+                        showError(registerErrorDiv, result.error || '注册失败，请尝试其他用户名');
+                    }
+                } catch (error) {
+                    showError(registerErrorDiv, error.message || '注册时发生错误');
+                }
+            });
+            
+            // 辅助函数：显示错误消息
+            function showError(element, message) {
+                element.textContent = message;
+                element.style.display = 'block';
+            }
+            
+            // 辅助函数：显示成功消息
+            function showSuccess(element, message) {
+                element.textContent = message;
+                element.style.display = 'block';
+            }
+            
+            // 辅助函数：清除所有消息
+            function clearMessages() {
+                loginErrorDiv.style.display = 'none';
+                loginSuccessDiv.style.display = 'none';
+                registerErrorDiv.style.display = 'none';
+                registerSuccessDiv.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html> 

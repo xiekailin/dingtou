@@ -69,7 +69,17 @@ const API_CONFIG = {
  * @param {string} currency 货币类型 (USD/CNY)
  */
 function getCurrentBtcPrice(currency = 'USD') {
-    if (!btcPrice.USD) return 0;
+    // 如果还没有获取到价格，使用默认价格（最新市场价格）
+    if (!btcPrice.USD) {
+        console.warn('BTC价格未初始化，使用默认价格');
+        // 设置默认价格 - 使用更合理的默认价格
+        const defaultPrice = {
+            USD: 95000, // 设置一个默认的美元价格，比历史购买价格稍高
+            CNY: 95000 * 7.2, // 假设汇率
+            timestamp: new Date().toISOString()
+        };
+        return currency === 'CNY' ? defaultPrice.CNY : defaultPrice.USD;
+    }
     
     return currency === 'CNY' 
         ? btcPrice.CNY 
