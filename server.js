@@ -617,11 +617,14 @@ app.post('/api/updateRecord', async (req, res) => {
 
 // 删除记录
 app.post('/api/deleteRecord', async (req, res) => {
-  const { recordDate } = req.body;
+  const { recordDate, date } = req.body;
   
-  console.log('收到删除记录请求，日期:', recordDate);
+  // 兼容新旧参数名
+  const dateToUse = recordDate || date;
   
-  if (!recordDate) {
+  console.log('收到删除记录请求，日期:', dateToUse);
+  
+  if (!dateToUse) {
     return res.status(400).json({ success: false, error: '未提供记录日期' });
   }
   
@@ -630,12 +633,12 @@ app.post('/api/deleteRecord', async (req, res) => {
     
     // 处理日期格式 - 确保它是MySQL兼容的格式
     let formattedDate;
-    if (recordDate.includes('T')) {
+    if (dateToUse.includes('T')) {
       // 如果是ISO格式 (2023-04-29T15:30:00)，转换为MySQL格式 (2023-04-29 15:30:00)
-      formattedDate = recordDate.replace('T', ' ');
+      formattedDate = dateToUse.replace('T', ' ');
     } else {
       // 已经是MySQL格式或其他格式，保持原样
-      formattedDate = recordDate;
+      formattedDate = dateToUse;
     }
     
     console.log('处理后的日期格式用于删除:', formattedDate);
@@ -650,7 +653,7 @@ app.post('/api/deleteRecord', async (req, res) => {
     
     if (checkResult[0].count === 0) {
       // 尝试使用其他格式再次检查
-      const dateObj = new Date(recordDate);
+      const dateObj = new Date(dateToUse);
       if (!isNaN(dateObj.getTime())) {
         // 有效日期，尝试不同格式
         const mysqlFormat = dateObj.toISOString().slice(0, 19).replace('T', ' ');
@@ -669,7 +672,7 @@ app.post('/api/deleteRecord', async (req, res) => {
           return res.status(404).json({ 
             success: false, 
             error: '未找到指定日期的记录',
-            date: recordDate,
+            date: dateToUse,
             formattedDate: formattedDate,
             mysqlFormat: mysqlFormat
           });
@@ -679,7 +682,7 @@ app.post('/api/deleteRecord', async (req, res) => {
         return res.status(404).json({ 
           success: false, 
           error: '未找到指定日期的记录',
-          date: recordDate,
+          date: dateToUse,
           formattedDate: formattedDate
         });
       }

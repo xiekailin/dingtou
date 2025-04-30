@@ -90,7 +90,7 @@
             <button id="refreshPrice" class="secondary">手动刷新价格</button>
             <div class="radio-item">
                 <input type="checkbox" id="autoRefresh">
-                <label for="autoRefresh">自动更新价格 (每60秒)</label>
+                <!-- <label for="autoRefresh">自动更新价格 (每60秒)</label> -->
             </div>
         </div>
         
@@ -290,6 +290,29 @@
                     <button id="cancelSyncBtn" class="danger">取消</button>
                     <button id="confirmSyncBtn">确认</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- 添加比特币价格iframe容器 -->
+        <div id="btc-price-container" style="display:none;"></div>
+
+        <!-- 添加价格获取失败时的提示和操作界面 -->
+        <div id="price-fetch-error" class="modal" style="display:none;">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h3>获取比特币价格失败</h3>
+                <p>无法获取实时比特币价格数据，请尝试以下解决方案：</p>
+                <div class="btn-group">
+                    <button id="try-alt-api">尝试备用API</button>
+                    <button id="try-proxy">尝试本地代理</button>
+                    <button id="try-iframe">尝试内嵌框架</button>
+                    <button id="use-manual-price">手动输入价格</button>
+                </div>
+                <div id="manual-price-input" style="display:none; margin-top: 10px;">
+                    <input type="number" id="manual-btc-price" placeholder="输入当前比特币价格(USD)" step="0.01">
+                    <button id="set-manual-price">设置</button>
+                </div>
+                <div id="price-fetch-status" style="margin-top: 10px; font-style: italic;"></div>
             </div>
         </div>
     </div>

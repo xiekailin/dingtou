@@ -1,0 +1,266 @@
+[
+  {
+    "uuid": "cc09de8e-bf5d-4167-80dc-4731cede4a18",
+    "date": "2024-05-15T00:00",
+    "amount": 500,
+    "btcPrice": 449943,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "c214c68a-b3b2-47e1-b867-75f4b90483bb",
+    "date": "2024-05-29T00:00",
+    "amount": 1000,
+    "btcPrice": 499907,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "48da69a8-9713-4fa6-b556-387775279d67",
+    "date": "2024-05-30T00:00",
+    "amount": 145,
+    "btcPrice": 490651,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "e8b7db2e-c24e-408a-9272-650325c49b8c",
+    "date": "2024-06-15T00:00",
+    "amount": 1000,
+    "btcPrice": 488548,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "2532cb34-6ab1-40d7-bb06-8d371b51244d",
+    "date": "2024-06-19T00:00",
+    "amount": 500,
+    "btcPrice": 482429,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "f4c9c523-d100-4539-945a-ded84fc0d54a",
+    "date": "2024-06-21T00:00",
+    "amount": 500,
+    "btcPrice": 480051,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "7904c356-f0ca-4efa-bfef-218619269287",
+    "date": "2024-06-26T00:00",
+    "amount": 500,
+    "btcPrice": 454117,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "714804a1-7758-422c-b30e-ac76aacb200c",
+    "date": "2024-06-27T00:00",
+    "amount": 500,
+    "btcPrice": 449441,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "019cab96-91b8-4854-9087-40257a29dc5e",
+    "date": "2024-06-28T00:00",
+    "amount": 365,
+    "btcPrice": 449100,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "973802d6-dd89-468a-ac07-f0c278170953",
+    "date": "2024-06-28T00:01",
+    "amount": 219,
+    "btcPrice": 443643,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "c908ba3b-89bc-4276-a69c-84901f4fc2b1",
+    "date": "2024-07-03T00:00",
+    "amount": 365,
+    "btcPrice": 448877,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "785ef533-684d-46a4-b4e0-ad35652e5f55",
+    "date": "2024-07-04T00:00",
+    "amount": 730,
+    "btcPrice": 426962,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "a796d9b1-dfe7-4a63-9518-e1b1d32e750a",
+    "date": "2024-07-04T00:01",
+    "amount": 365,
+    "btcPrice": 427181,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "96f50726-004c-496d-ba8f-da8be242596c",
+    "date": "2024-07-04T00:02",
+    "amount": 365,
+    "btcPrice": 427211,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "1f03753f-0e6b-4870-b143-590245df04d1",
+    "date": "2024-07-05T00:00",
+    "amount": 372,
+    "btcPrice": 405480,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "2cb9bde1-0307-4cf1-8f8a-dd8671bca1b1",
+    "date": "2024-07-05T00:01",
+    "amount": 446.4,
+    "btcPrice": 413329,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "aa4b8f4c-d3bf-4af7-8e83-ee178e94a85d",
+    "date": "2024-07-15T00:00",
+    "amount": 2000,
+    "btcPrice": 461823,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "33668176-a60c-42a4-817c-4382fd48e30a",
+    "date": "2024-07-19T00:00",
+    "amount": 2625,
+    "btcPrice": 483278,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "1272510b-8871-49c4-992a-de4159bad691",
+    "date": "2024-07-22T00:00",
+    "amount": 2000,
+    "btcPrice": 492925,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "202d7327-9bf2-427b-8bf9-a0bff6c31d60",
+    "date": "2024-08-14T00:00",
+    "amount": 2000,
+    "btcPrice": 424887,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "d937ab55-5feb-40b3-8a0b-c3dcda2300e7",
+    "date": "2024-09-03T00:00",
+    "amount": 2000,
+    "btcPrice": 408711,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "92de4f19-2544-48cc-8971-5976ef1b2248",
+    "date": "2024-09-13T00:00",
+    "amount": 1000,
+    "btcPrice": 428340,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "598a7297-c211-4c8d-8c91-3c0522b4f6b1",
+    "date": "2024-10-08T00:00",
+    "amount": 3888,
+    "btcPrice": 434463,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "5637ebda-fd81-41a0-9e5a-4f5a74ac8c65",
+    "date": "2024-10-15T00:00",
+    "amount": 2000,
+    "btcPrice": 471516,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "ed075d50-10c2-4f5b-81f0-86563f765c2d",
+    "date": "2024-10-16T00:00",
+    "amount": 1000,
+    "btcPrice": 471010,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "0b770723-4d37-41e1-8753-9d85dbde0d87",
+    "date": "2024-10-22T00:00",
+    "amount": 10000,
+    "btcPrice": 475037,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "6d32cc87-787b-4278-9549-9d7ed9b7c455",
+    "date": "2024-11-15T00:00",
+    "amount": 2000,
+    "btcPrice": 651600,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "03f148ed-c31c-425a-83b9-f42567abb47c",
+    "date": "2024-11-16T00:00",
+    "amount": 2000,
+    "btcPrice": 662460,
+    "note": "",
+    "currency": "CNY"
+  },
+  {
+    "uuid": "cb70a4d9-7897-46e5-906a-315bf1ea38f2",
+    "date": "2025-02-22T05:08",
+    "amount": 450,
+    "btcPrice": 95161.3,
+    "note": "",
+    "currency": "USD"
+  },
+  {
+    "uuid": "75461a1d-186e-47e6-9090-557bfafd2687",
+    "date": "2025-02-25T06:26",
+    "amount": 100,
+    "btcPrice": 93592,
+    "note": "",
+    "currency": "USD"
+  },
+  {
+    "uuid": "90bffc2f-39df-4734-a031-bdaad5fcc451",
+    "date": "2025-02-27T03:25",
+    "amount": 138,
+    "btcPrice": 84406,
+    "note": "",
+    "currency": "USD"
+  },
+  {
+    "uuid": "09982840-bf64-4d34-a3f0-3f5b02323399",
+    "date": "2025-02-27T08:54",
+    "amount": 50,
+    "btcPrice": 84702,
+    "note": "",
+    "currency": "USD"
+  },
+  {
+    "uuid": "9734863c-e3b8-43de-be8b-03ff244e9a37",
+    "date": "2025-02-27T08:55",
+    "amount": 36,
+    "btcPrice": 84757,
+    "note": "",
+    "currency": "USD"
+  }
+]

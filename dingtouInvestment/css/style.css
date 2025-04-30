@@ -1,0 +1,57 @@
+/* 价格获取错误模态框样式 */
+#price-fetch-error .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+#price-fetch-error .btn-group button {
+    flex: 1;
+    min-width: 150px;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    background-color: #3498db;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+}
+
+#price-fetch-error .btn-group button:hover {
+    background-color: #2980b9;
+}
+
+#manual-price-input {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+}
+
+#manual-price-input input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+#manual-price-input button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    background-color: #2ecc71;
+    color: white;
+    cursor: pointer;
+}
+
+#price-fetch-status {
+    margin-top: 15px;
+    font-style: italic;
+}
+
+#btc-price-container {
+    margin-top: 15px;
+    width: 100%;
+    min-height: 300px;
+} 

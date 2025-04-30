@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比特币价格代理</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .price-display {
+            font-size: 32px;
+            font-weight: bold;
+            color: #16a085;
+            margin: 20px 0;
+        }
+        .source {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        .time {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .error {
+            color: #e74c3c;
+            background: #fdf7f7;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #status {
+            margin-top: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>比特币实时价格</h1>
+        <div class="time" id="time">上次更新: -</div>
+        <div class="price-display" id="price">$--,---</div>
+        <div class="source" id="source">数据来源: -</div>
+        
+        <div>
+            <button id="refresh">刷新价格</button>
+            <button id="copy">复制价格数据</button>
+        </div>
+        
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // 价格数据对象
+        const priceData = {
+            USD: null,
+            CNY: null,
+            timestamp: null,
+            source: null
+        };
+        
+        // 汇率
+        const exchangeRates = {
+            USD_TO_CNY: 7.2
+        };
+        
+        // API端点
+        const APIs = [
+            // 使用免费的API
+            {
+                name: 'Blockchain.info',
+                method: 'jsonp',
+                url: 'https://blockchain.info/ticker?callback=handleBlockchainResponse',
+                callbackName: 'handleBlockchainResponse',
+                parser: function(data) {
+                    return data.USD.last;
+                }
+            },
+            {
+                name: 'Coin API',
+                method: 'jsonp',
+                url: 'https://rest.coinapi.io/v1/exchangerate/BTC/USD?apikey=COINAPI_FREE',
+                callbackName: 'handleCoinApiResponse',
+                parser: function(data) {
+                    return data.rate;
+                }
+            },
+            {
+                name: 'WhaleAlert',
+                method: 'cors',
+                url: 'https://api.whalealert.io/v1/ticker/price',
+                parser: function(data) {
+                    return data.BTC.price;
+                }
+            }
+        ];
+        
+        // DOM元素
+        const priceElement = document.getElementById('price');
+        const sourceElement = document.getElementById('source');
+        const timeElement = document.getElementById('time');
+        const statusElement = document.getElementById('status');
+        const refreshButton = document.getElementById('refresh');
+        const copyButton = document.getElementById('copy');
+        
+        // 初始化页面
+        window.onload = function() {
+            refreshPrice();
+            
+            // 添加按钮事件
+            refreshButton.addEventListener('click', refreshPrice);
+            copyButton.addEventListener('click', copyPriceData);
+        };
+        
+        // JSONP回调函数
+        window.handleBlockchainResponse = function(data) {
+            try {
+                const price = APIs[0].parser(data);
+                updatePriceDisplay(price, APIs[0].name);
+            } catch (error) {
+                console.error('解析Blockchain.info数据失败:', error);
+                tryNextApi(1);
+            }
+        };
+        
+        window.handleCoinApiResponse = function(data) {
+            try {
+                const price = APIs[1].parser(data);
+                updatePriceDisplay(price, APIs[1].name);
+            } catch (error) {
+                console.error('解析Coin API数据失败:', error);
+                tryNextApi(2);
+            }
+        };
+        
+        // 尝试获取价格
+        function refreshPrice() {
+            statusElement.textContent = '正在获取价格...';
+            statusElement.style.color = '#3498db';
+            
+            // 从第一个API开始尝试
+            tryNextApi(0);
+        }
+        
+        // 尝试下一个API
+        function tryNextApi(index) {
+            if (index >= APIs.length) {
+                statusElement.textContent = '无法获取比特币价格，所有API都失败了';
+                statusElement.style.color = '#e74c3c';
+                return;
+            }
+            
+            const api = APIs[index];
+            statusElement.textContent = `正在从 ${api.name} 获取价格...`;
+            
+            if (api.method === 'jsonp') {
+                // 使用JSONP方法（可绕过CORS）
+                const script = document.createElement('script');
+                script.src = api.url;
+                script.onerror = function() {
+                    console.error(`从 ${api.name} 加载失败`);
+                    document.body.removeChild(script);
+                    tryNextApi(index + 1);
+                };
+                document.body.appendChild(script);
+            } else {
+                // 使用普通CORS方法
+                fetch(api.url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP错误: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        const price = api.parser(data);
+                        updatePriceDisplay(price, api.name);
+                    })
+                    .catch(error => {
+                        console.error(`从 ${api.name} 获取价格失败:`, error);
+                        tryNextApi(index + 1);
+                    });
+            }
+        }
+        
+        // 更新价格显示
+        function updatePriceDisplay(price, source) {
+            if (!price || isNaN(price)) {
+                statusElement.textContent = '获取到的价格无效';
+                statusElement.style.color = '#e74c3c';
+                return;
+            }
+            
+            // 更新价格数据
+            priceData.USD = parseFloat(price);
+            priceData.CNY = priceData.USD * exchangeRates.USD_TO_CNY;
+            priceData.timestamp = new Date().toISOString();
+            priceData.source = source;
+            
+            // 更新显示
+            priceElement.textContent = `$${numberWithCommas(priceData.USD.toFixed(2))}`;
+            sourceElement.textContent = `数据来源: ${source}`;
+            timeElement.textContent = `上次更新: ${new Date().toLocaleString()}`;
+            
+            statusElement.textContent = '获取价格成功!';
+            statusElement.style.color = '#16a085';
+            
+            // 将数据发送到父窗口（如果在iframe中）
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'btcPrice',
+                        data: priceData
+                    }, '*');
+                }
+            } catch (e) {
+                console.error('向父窗口发送消息失败:', e);
+            }
+        }
+        
+        // 复制价格数据
+        function copyPriceData() {
+            if (!priceData.USD) {
+                statusElement.textContent = '没有可复制的价格数据';
+                statusElement.style.color = '#e74c3c';
+                return;
+            }
+            
+            const dataStr = JSON.stringify(priceData);
+            
+            // 使用clipboard API
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(dataStr)
+                    .then(() => {
+                        statusElement.textContent = '价格数据已复制到剪贴板';
+                        statusElement.style.color = '#16a085';
+                    })
+                    .catch(err => {
+                        console.error('复制失败:', err);
+                        fallbackCopy(dataStr);
+                    });
+            } else {
+                fallbackCopy(dataStr);
+            }
+        }
+        
+        // 备用复制方法
+        function fallbackCopy(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                statusElement.textContent = successful ? 
+                    '价格数据已复制到剪贴板' : 
+                    '复制失败，请手动复制';
+                statusElement.style.color = successful ? '#16a085' : '#e74c3c';
+            } catch (err) {
+                console.error('复制失败:', err);
+                statusElement.textContent = '复制失败，请手动复制';
+                statusElement.style.color = '#e74c3c';
+            }
+            
+            document.body.removeChild(textArea);
+        }
+        
+        // 数字格式化
+        function numberWithCommas(x) {
+            return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+    </script>
+</body>
+</html> 

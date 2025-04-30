@@ -235,7 +235,9 @@ function attachTableEventListeners() {
             const index = parseInt(this.getAttribute('data-index'));
             const records = getSortedRecords();
             const record = records[index];
-            openEditModal(index, record);
+            
+            // 添加日期信息以便在编辑时使用
+            openEditModal(index, record, record.date);
         });
     });
     
@@ -243,11 +245,24 @@ function attachTableEventListeners() {
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const index = parseInt(this.getAttribute('data-index'));
+            const records = getSortedRecords();
+            const record = records[index];
             
-            if (confirm('确定要删除这条记录吗？')) {
+            // 格式化日期以便显示
+            const date = new Date(record.date);
+            const formattedDate = date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            // 显示更详细的确认信息
+            if (confirm(`确定要删除以下记录吗？\n\n日期: ${formattedDate}\n金额: ${record.amount.toFixed(2)} ${record.currency}\n比特币价格: ${record.btcPrice.toFixed(2)} ${record.currency}\n\n此操作不可恢复！`)) {
                 // 发布删除事件，让app.js处理
                 const event = new CustomEvent('recordDelete', { 
-                    detail: { index: index }
+                    detail: { index: index, date: record.date }
                 });
                 document.dispatchEvent(event);
             }
@@ -260,7 +275,7 @@ function attachTableEventListeners() {
  * @param {number} index 记录索引
  * @param {Object} record 记录对象
  */
-function openEditModal(index, record) {
+function openEditModal(index, record, date) {
     const editModal = document.getElementById('editRecordModal');
     const editDateInput = document.getElementById('editDate');
     const editAmountInput = document.getElementById('editAmount');
@@ -269,7 +284,7 @@ function openEditModal(index, record) {
     const editRecordIndexInput = document.getElementById('editRecordIndex');
     
     // 设置表单值
-    editDateInput.value = record.date;
+    editDateInput.value = date;
     editAmountInput.value = record.amount;
     editBtcPriceInput.value = record.btcPrice;
     editNoteInput.value = record.note || '';

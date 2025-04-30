@@ -7,6 +7,7 @@ import * as DbManager from './dbManager.js';
 import * as ChartManager from './chartManager.js';
 import * as ApiService from './apiService.js';
 import * as UiManager from './uiManager.js';
+import * as IframePriceFetcher from './btc-price-iframe.js';
 
 // DOM 元素引用
 let dateInput, amountInput, btcPriceInput, noteInput;
@@ -215,12 +216,25 @@ function attachEventListeners() {
     // 监听删除记录事件
     document.addEventListener('recordDelete', async function(e) {
         const index = e.detail.index;
+        const recordDate = e.detail.date;
         
-        // 先保存记录，以便数据库删除
-        const deletedRecord = DataManager.getAllRecords()[index];
+        // 获取所有记录
+        const allRecords = DataManager.getAllRecords();
+        
+        // 先获取排序后的记录，以便找到要删除的记录
+        const sortedRecords = DataManager.getSortedRecords();
+        const recordToDelete = sortedRecords[index];
+        
+        // 根据日期找到原始数组中的索引（更可靠）
+        const originalIndex = allRecords.findIndex(r => r.date === recordDate);
+        
+        if (originalIndex === -1) {
+            alert('找不到要删除的记录，请刷新页面后重试');
+            return;
+        }
         
         // 删除本地记录
-        DataManager.deleteRecord(index);
+        const deletedRecord = DataManager.deleteRecord(originalIndex);
         
         // 如果数据库已启用且已连接，尝试同步删除操作
         if (DbManager.isDatabaseEnabled() && DbManager.isDatabaseConnected()) {
@@ -511,21 +525,212 @@ async function importJsonData(shouldReplace) {
  * 刷新BTC价格
  */
 async function refreshPrice() {
-    const result = await ApiService.fetchBtcPrice();
+    try {
+        const result = await ApiService.fetchBtcPrice();
+        
+        if (result.success) {
+            // 更新价格显示
+            UiManager.updateCurrentPriceDisplay();
+            
+            // 更新表格和统计
+            UiManager.renderRecordsTable();
+            UiManager.updateStatistics();
+            
+            // 更新图表
+            const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
+            ChartManager.updateAllCharts(currentBtcPrice);
+            
+            // 隐藏错误模态框（如果显示）
+            document.getElementById('price-fetch-error').style.display = 'none';
+            
+            return true;
+        } else {
+            console.error('获取比特币价格失败:', result.error);
+            showPriceFetchError(result.error);
+            return false;
+        }
+    } catch (error) {
+        console.error('获取比特币价格出错:', error);
+        showPriceFetchError(error.message);
+        return false;
+    }
+}
+
+/**
+ * 显示价格获取错误模态框
+ */
+function showPriceFetchError(errorMsg) {
+    const errorModal = document.getElementById('price-fetch-error');
+    const statusDiv = document.getElementById('price-fetch-status');
     
+    // 设置错误状态
+    statusDiv.textContent = `错误: ${errorMsg}`;
+    statusDiv.style.color = '#e74c3c';
+    
+    // 显示模态框
+    errorModal.style.display = 'block';
+    
+    // 添加关闭按钮事件
+    const closeBtn = errorModal.querySelector('.close');
+    closeBtn.onclick = function() {
+        errorModal.style.display = 'none';
+    };
+    
+    // 点击模态框外部关闭
+    window.onclick = function(event) {
+        if (event.target == errorModal) {
+            errorModal.style.display = 'none';
+        }
+    };
+    
+    // 设置按钮事件
+    setupErrorModalButtons();
+}
+
+/**
+ * 设置错误模态框按钮事件
+ */
+function setupErrorModalButtons() {
+    // 尝试备用API
+    document.getElementById('try-alt-api').onclick = async function() {
+        updatePriceFetchStatus('正在尝试备用API...');
+        const result = await ApiService.fetchBtcPrice();
+        handlePriceFetchResult(result);
+    };
+    
+    // 尝试本地代理
+    document.getElementById('try-proxy').onclick = async function() {
+        updatePriceFetchStatus('正在尝试本地代理...');
+        try {
+            const response = await fetch('./btc-price-proxy.php');
+            
+            if (!response.ok) {
+                throw new Error(`代理服务器响应错误: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.price) {
+                // 手动更新价格
+                ApiService.manuallySetPrice(data.price);
+                
+                handlePriceFetchResult({
+                    success: true,
+                    data: {
+                        price: {
+                            USD: data.price,
+                            timestamp: new Date().toISOString()
+                        },
+                        source: data.source || '本地代理'
+                    }
+                });
+            } else {
+                throw new Error(data.error || '代理返回无效数据');
+            }
+        } catch (error) {
+            updatePriceFetchStatus(`本地代理获取失败: ${error.message}`, false);
+        }
+    };
+    
+    // 尝试iframe方式
+    document.getElementById('try-iframe').onclick = async function() {
+        updatePriceFetchStatus('正在初始化iframe获取器...');
+        
+        try {
+            // 初始化iframe价格获取器
+            IframePriceFetcher.initPriceFetcher('btc-price-container');
+            
+            updatePriceFetchStatus('正在通过iframe获取价格...');
+            
+            // 获取价格
+            const price = await IframePriceFetcher.refreshPrice();
+            
+            if (price && price.USD) {
+                // 手动更新价格
+                ApiService.manuallySetPrice(price.USD, price.source || 'iframe');
+                
+                handlePriceFetchResult({
+                    success: true,
+                    data: {
+                        price: {
+                            USD: price.USD,
+                            CNY: price.CNY,
+                            timestamp: price.timestamp
+                        },
+                        source: price.source || 'iframe'
+                    }
+                });
+            } else {
+                throw new Error('iframe返回无效价格数据');
+            }
+        } catch (error) {
+            updatePriceFetchStatus(`iframe获取失败: ${error.message}`, false);
+        }
+    };
+    
+    // 手动输入价格
+    document.getElementById('use-manual-price').onclick = function() {
+        const manualInputDiv = document.getElementById('manual-price-input');
+        manualInputDiv.style.display = 'block';
+        document.getElementById('manual-btc-price').focus();
+    };
+    
+    // 设置手动价格
+    document.getElementById('set-manual-price').onclick = function() {
+        const priceInput = document.getElementById('manual-btc-price');
+        const price = parseFloat(priceInput.value);
+        
+        if (!isNaN(price) && price > 0) {
+            // 手动更新价格
+            ApiService.manuallySetPrice(price);
+            
+            handlePriceFetchResult({
+                success: true,
+                data: {
+                    price: {
+                        USD: price,
+                        timestamp: new Date().toISOString()
+                    },
+                    source: '手动输入'
+                }
+            });
+        } else {
+            updatePriceFetchStatus('请输入有效的价格', false);
+        }
+    };
+}
+
+/**
+ * 更新价格获取状态
+ */
+function updatePriceFetchStatus(message, isProgress = true) {
+    const statusDiv = document.getElementById('price-fetch-status');
+    statusDiv.textContent = message;
+    statusDiv.style.color = isProgress ? '#3498db' : '#e74c3c';
+}
+
+/**
+ * 处理价格获取结果
+ */
+function handlePriceFetchResult(result) {
     if (result.success) {
-        // 更新价格显示
-        UiManager.updateCurrentPriceDisplay();
+        updatePriceFetchStatus(`价格获取成功! 来源: ${result.data.source || '未知'}`, true);
         
-        // 更新表格和统计
-        UiManager.renderRecordsTable();
-        UiManager.updateStatistics();
-        
-        // 更新图表
-        const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
-        ChartManager.updateAllCharts(currentBtcPrice);
+        // 延迟关闭模态框
+        setTimeout(() => {
+            document.getElementById('price-fetch-error').style.display = 'none';
+            
+            // 更新UI
+            UiManager.updateCurrentPriceDisplay();
+            UiManager.renderRecordsTable();
+            UiManager.updateStatistics();
+            
+            // 更新图表
+            const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
+            ChartManager.updateAllCharts(currentBtcPrice);
+        }, 1500);
     } else {
-        alert('获取比特币价格失败: ' + result.error);
+        updatePriceFetchStatus(`获取失败: ${result.error}`, false);
     }
 }
 
@@ -533,17 +738,26 @@ async function refreshPrice() {
  * 获取当前价格并设置到输入框
  */
 async function getAndSetCurrentPrice() {
-    const result = await ApiService.fetchBtcPrice();
-    
-    if (result.success) {
-        // 更新价格显示
-        UiManager.updateCurrentPriceDisplay();
+    try {
+        const result = await ApiService.fetchBtcPrice();
         
-        // 设置价格到输入框
-        const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
-        btcPriceInput.value = currentBtcPrice;
-    } else {
-        alert('获取比特币价格失败: ' + result.error);
+        if (result.success) {
+            // 更新价格显示
+            UiManager.updateCurrentPriceDisplay();
+            
+            // 设置价格到输入框
+            const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
+            btcPriceInput.value = currentBtcPrice;
+            
+            // 隐藏错误模态框（如果显示）
+            document.getElementById('price-fetch-error').style.display = 'none';
+        } else {
+            console.error('获取比特币价格失败:', result.error);
+            showPriceFetchError(result.error);
+        }
+    } catch (error) {
+        console.error('获取比特币价格出错:', error);
+        showPriceFetchError(error.message);
     }
 }
 
@@ -841,60 +1055,71 @@ async function executeSyncFromDatabase() {
 }
 
 /**
- * 保存编辑后的记录
+ * 保存编辑的记录
  */
 async function saveEditedRecord() {
-    const editRecordIndexInput = document.getElementById('editRecordIndex');
-    const editDateInput = document.getElementById('editDate');
-    const editAmountInput = document.getElementById('editAmount');
-    const editBtcPriceInput = document.getElementById('editBtcPrice');
-    const editNoteInput = document.getElementById('editNote');
-    
-    const index = parseInt(editRecordIndexInput.value);
-    const date = editDateInput.value;
-    const amount = parseFloat(editAmountInput.value);
-    const btcPrice = parseFloat(editBtcPriceInput.value);
-    const note = editNoteInput.value;
+    const date = document.getElementById('editDate').value;
+    const amount = parseFloat(document.getElementById('editAmount').value);
+    const btcPrice = parseFloat(document.getElementById('editBtcPrice').value);
+    const note = document.getElementById('editNote').value;
+    const index = parseInt(document.getElementById('editRecordIndex').value);
     
     if (!date || isNaN(amount) || amount <= 0 || isNaN(btcPrice) || btcPrice <= 0) {
         alert('请填写有效的日期、金额和价格！');
         return;
     }
     
-    // 获取原始记录的日期，用于数据库更新
-    const originalRecord = DataManager.getAllRecords()[index];
-    
-    // 创建更新后的记录
-    const updatedRecord = {
-        date: date,
-        amount: amount,
-        btcPrice: btcPrice,
-        note: note,
-        currency: DataManager.getSelectedCurrency()
-    };
-    
-    // 更新记录
-    DataManager.updateRecord(index, updatedRecord);
-    
-    // 如果数据库已启用且已连接，尝试同步更新操作
-    if (DbManager.isDatabaseEnabled() && DbManager.isDatabaseConnected()) {
-        // 先删除原记录
-        await DbManager.deleteRecordFromDatabase(originalRecord.date);
+    try {
+        // 获取排序后的记录，以便找到要编辑的记录
+        const sortedRecords = DataManager.getSortedRecords();
+        const recordToEdit = sortedRecords[index];
         
-        // 添加更新后的记录
-        await DbManager.saveRecordToDatabase(updatedRecord);
+        // 获取原始记录日期（用于数据库更新）
+        const originalDate = recordToEdit.date;
+        
+        // 获取所有记录
+        const allRecords = DataManager.getAllRecords();
+        
+        // 根据日期找到原始数组中的索引（更可靠）
+        const originalIndex = allRecords.findIndex(r => r.date === originalDate);
+        
+        if (originalIndex === -1) {
+            alert('找不到要编辑的记录，请刷新页面后重试');
+            return;
+        }
+        
+        // 创建更新后的记录对象
+        const updatedRecord = {
+            date: date,
+            amount: amount,
+            btcPrice: btcPrice,
+            note: note,
+            currency: DataManager.getSelectedCurrency()
+        };
+        
+        // 更新记录
+        DataManager.updateRecord(originalIndex, updatedRecord);
+        
+        // 如果数据库已启用且已连接，尝试同步更新操作
+        if (DbManager.isDatabaseEnabled() && DbManager.isDatabaseConnected()) {
+            // 使用原始日期作为更新条件
+            await DbManager.updateRecordInDatabase(updatedRecord, originalDate);
+        }
+        
+        // 关闭编辑弹窗
+        UiManager.closeEditModal();
+        
+        // 更新UI
+        UiManager.renderRecordsTable();
+        UiManager.updateStatistics();
+        
+        // 更新图表
+        const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
+        ChartManager.updateAllCharts(currentBtcPrice);
+    } catch (error) {
+        alert('保存记录失败: ' + error.message);
+        console.error('保存编辑记录失败:', error);
     }
-    
-    // 关闭弹窗
-    UiManager.closeEditModal();
-    
-    // 更新UI
-    UiManager.renderRecordsTable();
-    UiManager.updateStatistics();
-    
-    // 更新图表
-    const currentBtcPrice = ApiService.getCurrentBtcPrice(DataManager.getSelectedCurrency());
-    ChartManager.updateAllCharts(currentBtcPrice);
 }
 
 /**
